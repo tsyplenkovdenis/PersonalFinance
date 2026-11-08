@@ -11,8 +11,10 @@
 <meta name="theme-color" content="#f4f3ef" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180-dark.png" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<script>if ('serviceWorker' in navigator && location.protocol === 'https:') window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });</script>
 <style>
 :root{
   color-scheme: light;
@@ -183,6 +185,12 @@ table.t tr.total td{font-weight:620;border-top:1px solid var(--axis)}
 .sp{height:16px}
 .loading{color:var(--muted);padding:40px 0;text-align:center}
 .mt{margin-top:16px}
+html.compact .tbl-wrap:not(.nok)::before{content:"суммы в тыс ₽";display:block;font-size:11.5px;color:var(--muted);margin:0 0 6px}
+html.compact table.t{font-size:12px}
+html.compact table.t td,html.compact table.t th{padding:7px 4px}
+html.compact table.t td:first-child,html.compact table.t th:first-child{padding-left:2px}
+html.compact .tbl-wrap{margin:0 -6px}
+html.compact .card-head .hint{font-size:12px}
 @media (max-width:560px){.rank .row{grid-template-columns:1fr auto}.rank .track{display:none}.kpi .k-value{font-size:18px}}
 </style>
 </head>
@@ -270,7 +278,7 @@ table.t tr.total td{font-weight:620;border-top:1px solid var(--axis)}
         <div><h2>Реестр операций</h2><div class="hint" id="rHint"></div></div>
         <div class="seg"><div class="seg" id="rType"></div><input class="search" id="rSearch" placeholder="Поиск: статья, счёт, сумма, комментарий"></div>
       </div>
-      <div class="tbl-wrap" id="rTable"></div>
+      <div class="tbl-wrap nok" id="rTable"></div>
       <div class="pager" id="rPager"></div>
     </div>
   </section>
@@ -477,7 +485,11 @@ var nf2 = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFrac
 function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function minus(s) { return s.replace(/^-/, '−'); }
 function rub(v) { return minus(nf0.format(Math.round(v))) + ' ₽'; }
-function num(v) { return minus(nf0.format(Math.round(v))); }
+function num(v) { return S && S.compact ? minus(nf0.format(Math.round(v / 1000))) : minus(nf0.format(Math.round(v))); }
+/* money for cards and lists: thousands on a phone, full rubles elsewhere */
+function money(v) { return S && S.compact ? minus(nf0.format(Math.round(v / 1000))) + ' тыс ₽' : rub(v); }
+function monthName(ym) { return S && S.compact ? ymLabel(ym, true) : ymLong(ym); }
+function thK(label) { return S && S.compact ? label + ' <span class="mut" style="font-weight:400">тыс ₽</span>' : label; }
 function rub2(v) { return minus(nf2.format(v)) + ' ₽'; }
 function compact(v) {
   var a = Math.abs(v), s;
@@ -501,7 +513,8 @@ function nextYm(ym) { var y = yOf(ym), m = mOf(ym) + 1; if (m > 12) { m = 1; y++
 function daysIn(ym) { return new Date(yOf(ym), mOf(ym), 0).getDate(); }
 
 /* ---------- state ---------- */
-var S = {
+var S;
+S = {
   ops: [], meta: null, years: [], monthKeys: [], mAgg: {}, yAgg: {}, rankInc: {}, rankExp: {}, knownTypes: {},
   f: { years: new Set(), months: new Set() },
   tab: 'overview', dRange: '24', catRange: '24', calYear: null, mKind: 0, mExpand: null,
@@ -841,11 +854,11 @@ function renderOverview() {
   var pRate = cmp && cmp.i > 0 ? (cmp.i - cmp.e) / cmp.i : null;
   var avg = s.months ? s.e / s.months : null;
   var tiles = [
-    ['Доход', rub(s.i), delta(s.i, cmp && cmp.i, true)],
-    ['Расход', rub(s.e), delta(s.e, cmp && cmp.e, false)],
-    ['NCF (доход − расход)', rub(ncf), cmp ? 'было ' + esc(rub(cmp.i - cmp.e)) : '&nbsp;', 'hero'],
+    ['Доход', money(s.i), delta(s.i, cmp && cmp.i, true)],
+    ['Расход', money(s.e), delta(s.e, cmp && cmp.e, false)],
+    ['NCF (доход − расход)', money(ncf), cmp ? 'было ' + esc(money(cmp.i - cmp.e)) : '&nbsp;', 'hero'],
     ['Доля сбережений', rate == null ? '—' : pct(rate).replace('+', ''), cmp ? (pRate == null ? '&nbsp;' : was(pRate, function (v) { return pct(v).replace('+', ''); })) : 'NCF ÷ доход'],
-    ['Средний расход в месяц', avg == null ? '—' : rub(avg), s.months + ' ' + plural(s.months, 'месяц', 'месяца', 'месяцев') + ' с операциями'],
+    ['Средний расход в месяц', avg == null ? '—' : money(avg), s.months + ' ' + plural(s.months, 'месяц', 'месяца', 'месяцев') + (S.compact ? '' : ' с операциями')],
     ['Операций', nf0.format(s.n), cmp ? was(cmp.n, function (v) { return nf0.format(v); }) : '&nbsp;']
   ];
   $('kpis').innerHTML = tiles.map(function (t) {
@@ -864,7 +877,7 @@ function renderOverview() {
   // top expenses
   var top = ops.filter(function (o) { return !o.t; }).sort(function (a, b) { return a.a - b.a; }).slice(0, 10);
   $('topOps').innerHTML = top.length ? '<div class="rank">' + top.map(function (o) {
-    return '<div class="row" style="grid-template-columns:72px 1fr auto;cursor:default"><span class="mut" style="font-size:12px;font-variant-numeric:tabular-nums">' + dFmt(o.d) + '</span><span class="name"><i class="dot" style="background:' + catColor(0, o.cat) + '"></i><span>' + esc(o.cat) + (o.c ? ' <span class="mut">· ' + esc(o.c) + '</span>' : '') + '</span><span class="mut" style="font-size:12px">' + esc(o.acc) + '</span></span><span class="val">' + rub(-o.a) + '</span></div>';
+    return '<div class="row" style="grid-template-columns:72px 1fr auto;cursor:default"><span class="mut" style="font-size:12px;font-variant-numeric:tabular-nums">' + dFmt(o.d) + '</span><span class="name"><i class="dot" style="background:' + catColor(0, o.cat) + '"></i><span>' + esc(o.cat) + (o.c ? ' <span class="mut">· ' + esc(o.c) + '</span>' : '') + '</span><span class="mut" style="font-size:12px">' + esc(o.acc) + '</span></span><span class="val">' + money(-o.a) + '</span></div>';
   }).join('') + '</div>' : '<div class="loading">Нет расходов за период</div>';
 }
 function plural(n, a, b, c) { var m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; }
@@ -883,7 +896,7 @@ function structure(el, ops, t) {
   el.innerHTML = '';
   if (!total) { el.innerHTML = '<div class="loading">Нет ' + (t ? 'доходов' : 'расходов') + ' за выбранный период</div>'; return; }
   var head = document.createElement('div'); head.className = 'struct-total';
-  head.innerHTML = '<b>' + esc(rub(total)) + '</b><span>' + (t ? 'доход' : 'расход') + ' · ' + cats.length + ' ' + plural(cats.length, 'статья', 'статьи', 'статей') + '</span>';
+  head.innerHTML = '<b>' + esc(money(total)) + '</b><span>' + (t ? 'доход' : 'расход') + ' · ' + cats.length + ' ' + plural(cats.length, 'статья', 'статьи', 'статей') + '</span>';
   el.appendChild(head);
   var hb = document.createElement('div'); hb.className = 'hbar'; el.appendChild(hb);
   var segs = cats.slice(0, TOPN).map(function (c, i) { return { name: c, v: tot[c], i: i }; });
@@ -909,7 +922,7 @@ function structure(el, ops, t) {
     var row = document.createElement('div'); row.className = 'row';
     row.innerHTML = '<span class="name"><i class="dot" style="background:' + rankColor(t, i) + '"></i><span>' + esc(c) + '</span></span>' +
       '<span class="track"><span class="bar" style="width:' + (tot[c] / max * 100).toFixed(1) + '%;background:' + rankColor(t, i) + '"></span></span>' +
-      '<span class="val">' + esc(rub(tot[c])) + '<small>' + (tot[c] / total * 100).toFixed(1).replace('.', ',') + '%</small></span>';
+      '<span class="val">' + esc(money(tot[c])) + '<small>' + (tot[c] / total * 100).toFixed(1).replace('.', ',') + '%</small></span>';
     row.onclick = function () { openCat(c, t); };
     list.appendChild(row);
   });
@@ -934,11 +947,11 @@ function openCat(cat, t) {
   var biggest = ops.slice().sort(function (a, b) { return Math.abs(b.a) - Math.abs(a.a); })[0];
   var byY = {}; ops.forEach(function (o) { var y = Math.floor(o.d / 10000); byY[y] = (byY[y] || 0) + Math.abs(o.a); });
   card.innerHTML = '<div class="card-head"><div><h2><i class="dot" style="display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;background:' + (t ? 'var(--inc)' : 'var(--exp)') + '"></i>' + esc(cat) + '</h2><div class="hint">' + (t ? 'Доход' : 'Расход') + ' · ' + nf0.format(ops.length) + ' операций за всё время</div></div><button class="x" id="mClose" aria-label="Закрыть">×</button></div>' +
-    '<div class="mini-stats"><div>За выбранный период<b>' + esc(rub(fSum)) + '</b></div><div>Последние 12 мес.<b>' + esc(rub(last12)) + '</b></div><div>В среднем в месяц (12 мес.)<b>' + esc(rub(last12 / 12)) + '</b></div>' +
-    (biggest ? '<div>Крупнейшая операция<b>' + esc(rub(Math.abs(biggest.a))) + '</b>' + dFmt(biggest.d) + '</div>' : '') + '</div>' +
+    '<div class="mini-stats"><div>За выбранный период<b>' + esc(money(fSum)) + '</b></div><div>Последние 12 мес.<b>' + esc(money(last12)) + '</b></div><div>В среднем в месяц (12 мес.)<b>' + esc(money(last12 / 12)) + '</b></div>' +
+    (biggest ? '<div>Крупнейшая операция<b>' + esc(money(Math.abs(biggest.a))) + '</b>' + dFmt(biggest.d) + '</div>' : '') + '</div>' +
     '<div class="card-head" style="margin:4px 0 6px"><div class="hint">По месяцам, тыс. ₽</div><div class="seg" id="catRange"></div></div>' +
     '<div class="chart" id="catChart"></div><div class="sp"></div>' +
-    '<div class="tbl-wrap" style="max-height:260px"><table class="t"><thead><tr><th>Год</th><th>Сумма</th><th>Операций</th></tr></thead><tbody>' +
+    '<div class="tbl-wrap nok" style="max-height:260px"><table class="t"><thead><tr><th>Год</th><th>' + thK('Сумма') + '</th><th>Операций</th></tr></thead><tbody>' +
     Object.keys(byY).sort().reverse().map(function (y) { return '<tr><td>' + y + '</td><td>' + num(byY[y]) + '</td><td>' + ops.filter(function (o) { return Math.floor(o.d / 10000) == y; }).length + '</td></tr>'; }).join('') +
     '</tbody></table></div>';
   $('modal').classList.add('show');
@@ -1017,10 +1030,11 @@ function renderDynamics() {
     var part = m === S.partialYm;
     var di = !part && p && p.i ? (a.i - p.i) / p.i : null, de = !part && p && p.e ? (a.e - p.e) / p.e : null;
     var n = a.i - a.e;
-    return '<tr><td>' + ymLong(m) + (m === S.partialYm ? ' <span class="pill">неполный</span>' : '') + '</td><td>' + num(a.i) + '</td><td class="' + (di == null ? 'mut' : di >= 0 ? 'pos' : 'neg') + '">' + pct(di) + '</td><td>' + num(a.e) + '</td><td class="' + (de == null ? 'mut' : de > 0 ? 'neg' : 'pos') + '">' + pct(de) + '</td><td class="' + (n >= 0 ? '' : 'neg') + '">' + num(n) + '</td></tr>';
+    return '<tr><td>' + monthName(m) + (m === S.partialYm ? (S.compact ? '*' : ' <span class="pill">неполный</span>') : '') + '</td><td>' + num(a.i) + '</td><td class="' + (di == null ? 'mut' : di >= 0 ? 'pos' : 'neg') + '">' + pct(di) + '</td><td>' + num(a.e) + '</td><td class="' + (de == null ? 'mut' : de > 0 ? 'neg' : 'pos') + '">' + pct(de) + '</td><td class="' + (n >= 0 ? '' : 'neg') + '">' + num(n) + '</td></tr>';
   });
   var tI = ms.reduce(function (s, m) { return s + A(m).i; }, 0), tE = ms.reduce(function (s, m) { return s + A(m).e; }, 0);
-  $('dTable').innerHTML = '<table class="t"><thead><tr><th>Месяц</th><th>Доход</th><th>Изм. дохода</th><th>Расход</th><th>Изм. расхода</th><th>NCF</th></tr></thead><tbody>' + rows.join('') +
+  $('dTable').innerHTML = (S.compact ? '<table class="t"><thead><tr><th>Месяц</th><th>Доход</th><th>Δ</th><th>Расход</th><th>Δ</th><th>NCF</th></tr></thead><tbody>'
+    : '<table class="t"><thead><tr><th>Месяц</th><th>Доход</th><th>Изм. дохода</th><th>Расход</th><th>Изм. расхода</th><th>NCF</th></tr></thead><tbody>') + rows.join('') +
     '<tr class="total"><td>Итого</td><td>' + num(tI) + '</td><td></td><td>' + num(tE) + '</td><td></td><td>' + num(tI - tE) + '</td></tr></tbody></table>';
 }
 function prevYm(ym) { var y = yOf(ym), m = mOf(ym) - 1; if (m < 1) { m = 12; y--; } return y * 100 + m; }
@@ -1046,9 +1060,9 @@ function renderYears() {
   var rows = ys.map(function (y, k) {
     var a = A(y), p = k ? A(ys[k - 1]) : null; tI += a.i; tE += a.e;
     var di = p && p.i ? (a.i - p.i) / p.i : null, de = p && p.e ? (a.e - p.e) / p.e : null, n = a.i - a.e;
-    return '<tr><td>' + y + (y === partialYear ? ' <span class="pill">по ' + dFmt(S.maxD).slice(0, 5) + '</span>' : '') + '</td><td>' + num(a.i) + '</td><td class="' + (di == null ? 'mut' : di >= 0 ? 'pos' : 'neg') + '">' + pct(di) + '</td><td>' + num(a.e) + '</td><td class="' + (de == null ? 'mut' : de > 0 ? 'neg' : 'pos') + '">' + pct(de) + '</td><td class="' + (n >= 0 ? '' : 'neg') + '">' + num(n) + '</td></tr>';
+    return '<tr><td>' + y + (y === partialYear ? (S.compact ? '*' : ' <span class="pill">по ' + dFmt(S.maxD).slice(0, 5) + '</span>') : '') + '</td><td>' + num(a.i) + '</td><td class="' + (di == null ? 'mut' : di >= 0 ? 'pos' : 'neg') + '">' + pct(di) + '</td><td>' + num(a.e) + '</td><td class="' + (de == null ? 'mut' : de > 0 ? 'neg' : 'pos') + '">' + pct(de) + '</td><td class="' + (n >= 0 ? '' : 'neg') + '">' + num(n) + '</td></tr>';
   }).reverse();
-  $('yTable').innerHTML = '<table class="t"><thead><tr><th>Год</th><th>Доход</th><th>Изм.</th><th>Расход</th><th>Изм.</th><th>NCF</th></tr></thead><tbody>' + rows.join('') +
+  $('yTable').innerHTML = '<table class="t"><thead><tr><th>Год</th><th>Доход</th><th>' + (S.compact ? 'Δ' : 'Изм.') + '</th><th>Расход</th><th>' + (S.compact ? 'Δ' : 'Изм.') + '</th><th>NCF</th></tr></thead><tbody>' + rows.join('') +
     '<tr class="total"><td>Итого</td><td>' + num(tI) + '</td><td></td><td>' + num(tE) + '</td><td></td><td>' + num(tI - tE) + '</td></tr></tbody></table>';
 }
 
@@ -1064,7 +1078,7 @@ function renderMatrix() {
   var all = document.createElement('button'); all.className = 'chip' + (Y == null ? ' on' : ''); all.textContent = 'По годам';
   all.onclick = function () { S.mExpand = null; renderMatrix(); }; host.appendChild(all);
   S.years.forEach(function (y) {
-    var b = document.createElement('button'); b.className = 'chip' + (Y === y ? ' on' : ''); b.textContent = y + ' по месяцам';
+    var b = document.createElement('button'); b.className = 'chip' + (Y === y ? ' on' : ''); b.textContent = S.compact ? String(y) : y + ' по месяцам';
     b.onclick = function () { S.mExpand = y; renderMatrix(); }; host.appendChild(b);
   });
   var kind = t ? 'Доходы' : 'Расходы';
@@ -1094,7 +1108,7 @@ function renderMatrix() {
     return '<td style="background:color-mix(in srgb,' + color + ' ' + Math.round(6 + 52 * v / max) + '%,transparent)">' + num(v) + '</td>';
   };
   var head = '<tr><th class="l">Статья</th>' + cols.map(function (c) { return '<th>' + esc(c.lbl) + '</th>'; }).join('') +
-    '<th>' + (Y ? 'Итого ' + Y : 'Итого') + '</th><th>Ср./мес. ' + avgY + '</th></tr>';
+    '<th>' + (Y && !S.compact ? 'Итого ' + Y : 'Итого') + '</th><th>' + (S.compact ? 'Ср/мес' : 'Ср./мес. ' + avgY) + '</th></tr>';
   var colTot = cols.map(function () { return 0; }), grand = 0, gAvg = 0;
   var body = cats.map(function (c) {
     var vals = cols.map(function (col) { return val(c, col); }), max = Math.max.apply(null, vals) || 1, rt = rowTot(c), av = (cy[c][avgY] || 0) / avgN;
@@ -1130,7 +1144,7 @@ function renderRegister() {
   var page = rows.slice(S.r.page * per, S.r.page * per + per);
   $('rTable').innerHTML = '<table class="t"><thead><tr><th class="l">Дата</th><th class="l">Статья</th><th class="l">Счёт</th><th class="l">Комментарий</th><th>Сумма</th></tr></thead><tbody>' +
     (page.length ? page.map(function (o) {
-      return '<tr><td style="font-variant-numeric:tabular-nums">' + dFmt(o.d) + '</td><td class="l">' + esc(o.cat) + '</td><td class="l mut">' + esc(o.acc) + '</td><td class="l mut" style="white-space:normal;min-width:120px">' + esc(o.c) + '</td><td class="' + (o.t ? 'pos' : '') + '">' + (o.t ? '+' : '') + rub2(o.a) + '</td></tr>';
+      return '<tr><td style="font-variant-numeric:tabular-nums">' + (S.compact ? dFmt(o.d).slice(0, 6) + dFmt(o.d).slice(8) : dFmt(o.d)) + '</td><td class="l">' + esc(o.cat) + '</td><td class="l mut">' + esc(o.acc) + '</td><td class="l mut" style="white-space:normal;min-width:120px">' + esc(o.c) + '</td><td class="' + (o.t ? 'pos' : '') + '">' + (o.t ? '+' : '') + (S.compact ? rub(o.a) : rub2(o.a)) + '</td></tr>';
     }).join('') : '<tr><td colspan="5" class="mut" style="text-align:center;padding:30px">Ничего не найдено</td></tr>') + '</tbody></table>';
   var pg = $('rPager'); pg.innerHTML = '';
   if (pages > 1) {
@@ -1322,6 +1336,8 @@ function renderSub() {
 }
 function renderTab() {
   hideTip();
+  S.compact = window.innerWidth <= 600;
+  document.documentElement.classList.toggle('compact', S.compact);
   var t = S.tab;
   if (t === 'overview') renderOverview();
   else if (t === 'dynamics') renderDynamics();
